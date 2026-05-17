@@ -83,6 +83,16 @@ function makeTreeline(color) {
 let treelineMesh = makeTreeline(0x1a4d2e);
 scene.add(treelineMesh);
 
+// ── GLB obstacle templates ───────────────────────────────────────────────────
+const glbTemplates = { pine: null, rockMedium: null, rocks: null, grass: null, flowerGroup: null, hen: null };
+
+// ── Alpine environment GLB refs ──────────────────────────────────────────────
+let valleyTerrainTemplate = null;
+let mountainTemplate      = null;
+let valleyTerrainMesh     = null;
+let mountainMeshLeft      = null;
+let mountainMeshRight     = null;
+
 // ── Bike model ───────────────────────────────────────────────────────────────
 let bikeRoot = null;
 let bikeLoaded = false;
@@ -172,7 +182,8 @@ function buildFallbackBike() {
 
 // ── Obstacle pool ────────────────────────────────────────────────────────────
 const obstaclePool = [];
-const activeObstacles = []; // { mesh, box }
+const activeObstacles = [];   // { mesh, box }
+const activeDecorations = []; // { mesh } — non-collidable GLB decorations
 
 function getObstacleMesh(cfg) {
   // Try pool
@@ -300,6 +311,9 @@ let jumpVel        = 0;
 let jumpOffset     = 0;
 let bikeGroundY    = 0;
 
+// Hen spawner state
+let nextHenZ = 600;
+
 // Input
 const keys = { left: false, right: false, jump: false };
 
@@ -307,6 +321,13 @@ window.addEventListener('keydown', e => {
   if (e.key === 'ArrowLeft'  || e.key === 'a' || e.key === 'A') keys.left  = true;
   if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') keys.right = true;
   if (e.key === ' ' || e.key === 'ArrowUp') keys.jump = true;
+  if (e.key === 'Enter' && !gameRunning) {
+    const visibleOverlay = document.querySelector('.overlay:not(.hidden)');
+    if (visibleOverlay) {
+      const ctaBtn = visibleOverlay.querySelector('.btn-continue');
+      if (ctaBtn) ctaBtn.click();
+    }
+  }
 });
 window.addEventListener('keyup', e => {
   if (e.key === 'ArrowLeft'  || e.key === 'a' || e.key === 'A') keys.left  = false;
@@ -319,8 +340,17 @@ let lastTime = 0;
 let paused   = false;
 document.addEventListener('visibilitychange', () => { paused = document.hidden; });
 
+// ── Alpine background helpers ─────────────────────────────────────────────────
+function clearAlpineBackgrounds() {
+  if (valleyTerrainMesh) { scene.remove(valleyTerrainMesh); valleyTerrainMesh = null; }
+  if (mountainMeshLeft)  { scene.remove(mountainMeshLeft);  mountainMeshLeft  = null; }
+  if (mountainMeshRight) { scene.remove(mountainMeshRight); mountainMeshRight = null; }
+}
+
 // ── Apply world visuals ───────────────────────────────────────────────────────
 function applyWorld(worldId) {
+  clearAlpineBackgrounds();
+
   const w = WORLDS[worldId];
 
   scene.background = new THREE.Color(w.skyColor);
@@ -336,9 +366,25 @@ function applyWorld(worldId) {
   sunLight.intensity = w.sunIntensity;
   sunLight.position.set(...w.sunPosition);
 
-  if (treelineMesh) scene.remove(treelineMesh);
-  treelineMesh = makeTreeline(w.treeline);
-  scene.add(treelineMesh);
+  if (treelineMesh) { scene.remove(treelineMesh); treelineMesh = null; }
+
+  if (worldId === 'mountain' && valleyTerrainTemplate) {
+    valleyTerrainMesh = valleyTerrainTemplate.clone(true);
+    valleyTerrainMesh.position.set(0, 0, -85);
+    scene.add(valleyTerrainMesh);
+  } else {
+    treelineMesh = makeTreeline(w.treeline);
+    scene.add(treelineMesh);
+  }
+
+  if (worldId === 'mountain' && mountainTemplate) {
+    mountainMeshLeft  = mountainTemplate.clone(true);
+    mountainMeshLeft.position.set(-30, 0, -60);
+    scene.add(mountainMeshLeft);
+    mountainMeshRight = mountainTemplate.clone(true);
+    mountainMeshRight.position.set(30, 0, -60);
+    scene.add(mountainMeshRight);
+  }
 
   buildSideScenery(w);
 }
@@ -349,7 +395,28 @@ let currentWorldCfg = WORLDS.mountain;
 function spawnObstacle(z) {
   const obsConfigs = currentWorldCfg.obstacles;
   const cfg = obsConfigs[Math.floor(Math.random() * obsConfigs.length)];
-  const x   = (Math.random() - 0.5) * (LANE_WIDTH * 1.6);
+  const x = (Math.random() - 0.5) * (LANE_WIDTH * 1.6);
+
+  if (cfg.glbKey) {
+    const template = glbTemplates[cfg.glbKey];
+    if (!template) {
+      console.warn(`GLB template not yet loaded: ${cfg.glbKey}`);
+      return { x, z };
+    }
+    const mesh = template.clone(true);
+    mesh.position.set(x, 0, z);
+    scene.add(mesh);
+
+    if (cfg.collidable === false) {
+      activeDecorations.push({ mesh });
+    } else {
+      const box = new THREE.Box3().setFromObject(mesh);
+      activeObstacles.push({ mesh, box });
+    }
+    return { x, z };
+  }
+
+  // Procedural path — Illawarra world and edge obstacles
   const mesh = buildObstacleMesh(cfg);
   mesh.position.set(x, 0, z);
   scene.add(mesh);
@@ -460,6 +527,87 @@ loader.load(
   (err) => { console.warn('GoldBag.glb failed to load, using fallback', err); }
 );
 
+// ── GLB obstacle template loads ───────────────────────────────────────────────
+
+function normaliseGlbTemplate(root, targetH, centreXZ) {
+  const box = new THREE.Box3().setFromObject(root);
+  if (centreXZ) {
+    const centre = box.getCenter(new THREE.Vector3());
+    root.position.x -= centre.x;
+    root.position.z -= centre.z;
+  }
+  const box2 = new THREE.Box3().setFromObject(root);
+  const size = box2.getSize(new THREE.Vector3());
+  if (size.y > 0) root.scale.setScalar(targetH / size.y);
+  const box3 = new THREE.Box3().setFromObject(root);
+  root.position.y -= box3.min.y;
+  root.traverse(c => { if (c.isMesh) c.castShadow = true; });
+}
+
+loader.load('Pine.glb', gltf => {
+  normaliseGlbTemplate(gltf.scene, 4.0, false);
+  glbTemplates.pine = gltf.scene;
+}, undefined, err => console.warn('Pine.glb failed', err));
+
+loader.load('Rock Medium.glb', gltf => {
+  normaliseGlbTemplate(gltf.scene, 1.5, false);
+  glbTemplates.rockMedium = gltf.scene;
+}, undefined, err => console.warn('Rock Medium.glb failed', err));
+
+loader.load('Rocks.glb', gltf => {
+  normaliseGlbTemplate(gltf.scene, 1.2, true); // centre XZ — nodes spread ~7m in model space
+  glbTemplates.rocks = gltf.scene;
+}, undefined, err => console.warn('Rocks.glb failed', err));
+
+loader.load('Grass.glb', gltf => {
+  normaliseGlbTemplate(gltf.scene, 0.5, true); // centre XZ
+  glbTemplates.grass = gltf.scene;
+}, undefined, err => console.warn('Grass.glb failed', err));
+
+loader.load('Flower Group.glb', gltf => {
+  normaliseGlbTemplate(gltf.scene, 0.4, false);
+  glbTemplates.flowerGroup = gltf.scene;
+}, undefined, err => console.warn('Flower Group.glb failed', err));
+
+loader.load('Hen.glb', gltf => {
+  normaliseGlbTemplate(gltf.scene, 0.5, false);
+  glbTemplates.hen = gltf.scene;
+}, undefined, err => console.warn('Hen.glb failed', err));
+
+// ── Alpine environment template loads ─────────────────────────────────────────
+
+loader.load('Valley Terrain.glb', gltf => {
+  const root = gltf.scene;
+  const box = new THREE.Box3().setFromObject(root);
+  const centre = box.getCenter(new THREE.Vector3());
+  root.position.x -= centre.x;
+  root.position.z -= centre.z;
+  const box2 = new THREE.Box3().setFromObject(root);
+  const size = box2.getSize(new THREE.Vector3());
+  // Scale to ~60 m wide so it fills the background panorama
+  const targetW = 60;
+  if (size.x > 0) root.scale.setScalar(targetW / size.x);
+  const box3 = new THREE.Box3().setFromObject(root);
+  root.position.y -= box3.min.y;
+  root.traverse(c => { if (c.isMesh) c.castShadow = false; });
+  valleyTerrainTemplate = root;
+}, undefined, err => console.warn('Valley Terrain.glb failed', err));
+
+loader.load('Mountain.glb', gltf => {
+  const root = gltf.scene;
+  const box = new THREE.Box3().setFromObject(root);
+  const centre = box.getCenter(new THREE.Vector3());
+  root.position.x -= centre.x;
+  root.position.z -= centre.z;
+  const box2 = new THREE.Box3().setFromObject(root);
+  const size = box2.getSize(new THREE.Vector3());
+  if (size.y > 0) root.scale.setScalar(20 / size.y); // ~20 m tall peaks
+  const box3 = new THREE.Box3().setFromObject(root);
+  root.position.y -= box3.min.y;
+  root.traverse(c => { if (c.isMesh) c.castShadow = false; });
+  mountainTemplate = root;
+}, undefined, err => console.warn('Mountain.glb failed', err));
+
 function buildGoldBagMesh() {
   if (goldBagTemplate) {
     return goldBagTemplate.clone(true);
@@ -496,6 +644,19 @@ function spawnGoldBag(z) {
 function clearGoldBags() {
   activeGoldBags.forEach(b => scene.remove(b.mesh));
   activeGoldBags.length = 0;
+}
+
+// ── Hen spawner ───────────────────────────────────────────────────────────────
+
+function spawnHen(z) {
+  const template = glbTemplates.hen;
+  if (!template) return;
+  const mesh = template.clone(true);
+  const x = (Math.random() - 0.5) * (LANE_WIDTH * 2.8);
+  mesh.position.set(x, 0, z);
+  scene.add(mesh);
+  const box = new THREE.Box3().setFromObject(mesh);
+  activeObstacles.push({ mesh, box });
 }
 
 // ── Collision ────────────────────────────────────────────────────────────────
@@ -553,6 +714,7 @@ function triggerCrash() {
     clearCollectibles();
     clearEdgeObstacles();
     clearGoldBags();
+    clearDecorations();
 
     if (events.length) {
       showUnlockQueue(events, () => showGameOver(runDist, s.bestDistance));
@@ -565,6 +727,11 @@ function triggerCrash() {
 function clearObstacles() {
   activeObstacles.forEach(o => scene.remove(o.mesh));
   activeObstacles.length = 0;
+}
+
+function clearDecorations() {
+  activeDecorations.forEach(d => scene.remove(d.mesh));
+  activeDecorations.length = 0;
 }
 
 function clearCollectibles() {
@@ -602,7 +769,9 @@ function resetRun() {
   clearCollectibles();
   clearEdgeObstacles();
   clearGoldBags();
+  clearDecorations();
   nextGoldBagZ = GOLD_BAG_START + 1000 + Math.random() * 600;
+  nextHenZ = 600 + Math.random() * 100;
 
   // Seed first obstacles close to the start so player sees one within ~15 m
   [-12, -24, -38].forEach(z => spawnObstacle(z));
@@ -700,6 +869,15 @@ function gameLoop(now) {
     }
   }
 
+  // Decorations scroll (non-collidable GLBs — Grass, Flower Group)
+  activeDecorations.forEach(d => { d.mesh.position.z += travel; });
+  for (let i = activeDecorations.length - 1; i >= 0; i--) {
+    if (activeDecorations[i].mesh.position.z > camera.position.z + 5) {
+      scene.remove(activeDecorations[i].mesh);
+      activeDecorations.splice(i, 1);
+    }
+  }
+
   // Side scenery scroll and wrap
   sideSceneryObjects.forEach(obj => {
     obj.position.z += travel;
@@ -734,6 +912,12 @@ function gameLoop(now) {
   while (scrollZ >= nextEdgeObstacleZ) {
     spawnEdgeObstaclePair(-(SEG_COUNT * SEG_LENGTH - 5));
     nextEdgeObstacleZ += 25;
+  }
+
+  // Hen spawn — Mountain world only, approximately every 600 m
+  if (currentWorldCfg === WORLDS.mountain && scrollZ >= nextHenZ) {
+    spawnHen(-(SEG_COUNT * SEG_LENGTH - 5));
+    nextHenZ += 600 + Math.random() * 100;
   }
 
   // Gold bags scroll + bob

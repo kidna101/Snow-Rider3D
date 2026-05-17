@@ -22,11 +22,13 @@ export const WORLDS = {
     sunColor: '#fff8e8',
     sunIntensity: 1.1,
     sunPosition: [8, 14, -6],
-    // Obstacles
+    // Obstacles — GLB-backed for the Alpine world
     obstacles: [
-      { type: 'tree',  color: '#2d6a3f', trunkColor: '#5c3a1e', w: 1.4, h: 5.0, d: 1.4 },
-      { type: 'rock',  color: '#8a9ab0', w: 2.2, h: 1.5, d: 2.0 },
-      { type: 'log',   color: '#6b4226', w: 3.5, h: 0.7, d: 0.8 },
+      { glbKey: 'pine',        collidable: true,  targetH: 4.0 },
+      { glbKey: 'rockMedium',  collidable: true,  targetH: 1.5 },
+      { glbKey: 'rocks',       collidable: true,  targetH: 1.2 },
+      { glbKey: 'grass',       collidable: false, targetH: 0.5 },
+      { glbKey: 'flowerGroup', collidable: false, targetH: 0.4 },
     ],
     // Edge obstacles (collidable, themed for mountain)
     edgeObstacles: [
