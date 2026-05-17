@@ -24,10 +24,22 @@ export const WORLDS = {
     sunPosition: [8, 14, -6],
     // Obstacles
     obstacles: [
-      { type: 'tree',  color: '#2d6a3f', trunkColor: '#5c3a1e', w: 0.6, h: 2.2, d: 0.6 },
-      { type: 'rock',  color: '#8a9ab0', w: 1.0, h: 0.7, d: 1.0 },
-      { type: 'log',   color: '#6b4226', w: 1.8, h: 0.4, d: 0.5 },
+      { type: 'tree',  color: '#2d6a3f', trunkColor: '#5c3a1e', w: 1.4, h: 5.0, d: 1.4 },
+      { type: 'rock',  color: '#8a9ab0', w: 2.2, h: 1.5, d: 2.0 },
+      { type: 'log',   color: '#6b4226', w: 3.5, h: 0.7, d: 0.8 },
     ],
+    // Edge obstacles (collidable, themed for mountain)
+    edgeObstacles: [
+      { type: 'rock',  color: '#7a8da0', w: 2.5, h: 2.0, d: 2.5 },
+      { type: 'tree',  color: '#1a4d2e', trunkColor: '#4a2e14', w: 1.6, h: 6.0, d: 1.6 },
+    ],
+    // Side scenery config (non-collidable backdrop)
+    sideScenery: {
+      treeSizes: [{ h: 5, w: 1.2 }, { h: 7, w: 1.8 }, { h: 4, w: 1.0 }],
+      treeColor: '#1a4d2e',
+      trunkColor: '#4a2e14',
+      rockColor: '#7a8da0',
+    },
     // Collectibles
     collectible: { color: '#fffde0', emissive: '#e0c800', label: '⭐', geom: 'star' },
     // Decorative strip colours (trees in the distance)
@@ -56,10 +68,22 @@ export const WORLDS = {
     sunPosition: [10, 12, -4],
     // Obstacles
     obstacles: [
-      { type: 'gum',   color: '#7a9e7e', trunkColor: '#c8c0a0', w: 0.5, h: 2.6, d: 0.5 },
-      { type: 'rock',  color: '#b8a88a', w: 1.1, h: 0.65, d: 1.0 },
-      { type: 'log',   color: '#8b6540', w: 2.0, h: 0.38, d: 0.5 },
+      { type: 'gum',   color: '#7a9e7e', trunkColor: '#c8c0a0', w: 1.2, h: 5.5, d: 1.2 },
+      { type: 'rock',  color: '#b8a88a', w: 2.4, h: 1.4, d: 2.0 },
+      { type: 'log',   color: '#8b6540', w: 3.8, h: 0.65, d: 0.8 },
     ],
+    // Edge obstacles (collidable, themed for Illawarra)
+    edgeObstacles: [
+      { type: 'rock',  color: '#c8a878', w: 2.5, h: 2.0, d: 2.5 },
+      { type: 'gum',   color: '#5a8060', trunkColor: '#b0a080', w: 1.4, h: 5.5, d: 1.4 },
+    ],
+    // Side scenery config (non-collidable backdrop)
+    sideScenery: {
+      treeSizes: [{ h: 5.5, w: 1.2 }, { h: 8, w: 2.0 }, { h: 4.5, w: 1.0 }],
+      treeColor: '#5a8060',
+      trunkColor: '#b0a080',
+      rockColor: '#c8a878',
+    },
     // Collectibles
     collectible: { color: '#ffcc66', emissive: '#dd7700', label: '🌸', geom: 'sphere' },
     treeline: '#3d6e52',

@@ -294,3 +294,23 @@ body {
 #hud-dist, #hud-collectibles {
   letter-spacing: 0.04em;
 }
+
+/* ── Gold bag pickup flash ── */
+@keyframes goldFlash {
+  0%   { opacity: 1; transform: translateX(-50%) translateY(0);   }
+  100% { opacity: 0; transform: translateX(-50%) translateY(-32px); }
+}
+
+.gold-flash {
+  position: absolute;
+  top: -36px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 1.2rem;
+  font-weight: 800;
+  color: #ffd700;
+  text-shadow: 0 1px 6px rgba(0,0,0,0.7);
+  white-space: nowrap;
+  pointer-events: none;
+  animation: goldFlash 1.5s ease-out forwards;
+}

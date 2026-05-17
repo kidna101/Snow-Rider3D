@@ -5,11 +5,11 @@ import { WORLDS, BIKES } from './world-config.js';
 import {
   showScreen, hideAllScreens, showHUD, hideHUD,
   renderWorldGrid, renderBikeGrid,
-  showUnlockQueue, showGameOver, updateHUD,
+  showUnlockQueue, showGameOver, updateHUD, showGoldBagFlash,
 } from './ui.js';
 
 // ── Constants ────────────────────────────────────────────────────────────────
-const BIKE_X_LIMIT    = 3.8;        // metres left/right
+const BIKE_X_LIMIT    = 8;           // metres left/right (full terrain width)
 const STEER_SPEED     = 5.5;        // m/s lateral
 const BASE_SPEED      = 8;          // m/s forward at start
 const ACCEL           = 0.4;        // m/s² speed increase
@@ -18,9 +18,11 @@ const SEG_LENGTH      = 20;         // terrain segment depth
 const SEG_COUNT       = 6;          // number of pooled segments
 const LANE_WIDTH      = 8;          // terrain half-width each side
 const OBSTACLE_EVERY  = 12;         // metres between obstacle spawns
-const COLLECT_EVERY   = 8;          // metres between collectible spawns
 const COLLECT_SIZE    = 0.55;       // collision half-extent
 const OBS_SIZE        = 0.55;       // collision half-extent
+const JUMP_FORCE      = 7;          // m/s initial upward velocity
+const GRAVITY         = 18;         // m/s² downward acceleration
+const GOLD_BAG_START  = 1000;       // metres before first gold bag can appear
 
 // ── Three.js setup ───────────────────────────────────────────────────────────
 const canvas   = document.getElementById('game-canvas');
@@ -30,9 +32,9 @@ renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
 const scene  = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 200);
-camera.position.set(0, 6, 13);
-camera.lookAt(0, 0, -2);
+const camera = new THREE.PerspectiveCamera(70, 1, 0.1, 200);
+camera.position.set(0, 1.8, 7);
+camera.lookAt(0, 1.2, -8);
 
 // ── Resize ───────────────────────────────────────────────────────────────────
 function resize() {
@@ -108,9 +110,10 @@ function loadBike(bikeId, onReady) {
       const box2 = new THREE.Box3().setFromObject(bikeRoot);
       const min2  = box2.min;
       bikeRoot.position.y -= min2.y; // sit on ground
+      bikeGroundY = bikeRoot.position.y;
 
-      // Face away from camera (toward the hill)
-      bikeRoot.rotation.y = Math.PI;
+      // Face toward downhill (front wheel faces away from camera)
+      bikeRoot.rotation.y = 0;
 
       // Optional tint
       if (cfg.tint) {
@@ -233,18 +236,39 @@ function returnObstacle(mesh) {
 // ── Collectible pool ─────────────────────────────────────────────────────────
 const collectiblePool = [];
 const activeCollectibles = []; // { mesh, box, collected }
-let collectMat = new THREE.MeshLambertMaterial({ color: 0xfffde0, emissive: 0xe0c800, emissiveIntensity: 0.6 });
-let collectGeo = new THREE.OctahedronGeometry(COLLECT_SIZE, 0);
+let coinTemplate = null; // set after GLTFLoader loads Coin.glb
 
-function spawnCollectible(z, worldCfg) {
-  const x = (Math.random() - 0.5) * (LANE_WIDTH * 1.5);
-  let mesh = collectiblePool.pop();
-  if (!mesh) {
-    mesh = new THREE.Mesh(collectGeo.clone(), collectMat.clone());
-    mesh.castShadow = true;
+// Fallback geometry/material (used if Coin.glb fails to load)
+const collectFallbackMat = new THREE.MeshLambertMaterial({ color: 0xfffde0, emissive: 0xe0c800, emissiveIntensity: 0.6 });
+const collectFallbackGeo = new THREE.OctahedronGeometry(COLLECT_SIZE, 0);
+
+loader.load(
+  'Coin.glb',
+  (gltf) => {
+    coinTemplate = gltf.scene;
+    coinTemplate.scale.setScalar(1); // baked 100× scale is already correct at ~0.4 m
+  },
+  undefined,
+  (err) => { console.warn('Coin.glb failed to load, using fallback geometry', err); }
+);
+
+function spawnCollectible(z, worldCfg, explicitX) {
+  const x = explicitX !== undefined
+    ? Math.max(-(LANE_WIDTH - 0.5), Math.min(LANE_WIDTH - 0.5, explicitX))
+    : (Math.random() - 0.5) * (LANE_WIDTH * 1.5);
+
+  let mesh;
+  if (coinTemplate) {
+    mesh = collectiblePool.pop() || coinTemplate.clone(true);
+    mesh.rotation.x = Math.PI / 2; // stand coin upright (face-on toward camera)
+  } else {
+    mesh = collectiblePool.pop();
+    if (!mesh) {
+      mesh = new THREE.Mesh(collectFallbackGeo.clone(), collectFallbackMat.clone());
+      mesh.castShadow = true;
+    }
   }
-  mesh.material.color.set(worldCfg.collectible.color);
-  mesh.material.emissive.set(worldCfg.collectible.emissive);
+
   mesh.position.set(x, 0.55, z);
   mesh.visible = true;
   scene.add(mesh);
@@ -269,19 +293,25 @@ let scrollZ        = 0;       // how far the world has scrolled (m)
 let runDist        = 0;       // this run distance (m)
 let runCollected   = 0;
 let nextObstacleZ  = OBSTACLE_EVERY;
-let nextCollectZ   = COLLECT_EVERY;
 let crashed        = false;
 
+// Jump state
+let jumpVel        = 0;
+let jumpOffset     = 0;
+let bikeGroundY    = 0;
+
 // Input
-const keys = { left: false, right: false };
+const keys = { left: false, right: false, jump: false };
 
 window.addEventListener('keydown', e => {
   if (e.key === 'ArrowLeft'  || e.key === 'a' || e.key === 'A') keys.left  = true;
   if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') keys.right = true;
+  if (e.key === ' ' || e.key === 'ArrowUp') keys.jump = true;
 });
 window.addEventListener('keyup', e => {
   if (e.key === 'ArrowLeft'  || e.key === 'a' || e.key === 'A') keys.left  = false;
   if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') keys.right = false;
+  if (e.key === ' ' || e.key === 'ArrowUp') keys.jump = false;
 });
 
 // Pause delta on tab-hide
@@ -309,6 +339,8 @@ function applyWorld(worldId) {
   if (treelineMesh) scene.remove(treelineMesh);
   treelineMesh = makeTreeline(w.treeline);
   scene.add(treelineMesh);
+
+  buildSideScenery(w);
 }
 
 // ── Spawn helpers ────────────────────────────────────────────────────────────
@@ -328,6 +360,122 @@ function spawnObstacle(z) {
     size
   );
   activeObstacles.push({ mesh, box });
+  return { x, z };
+}
+
+// ── Side scenery (non-collidable backdrop) ────────────────────────────────────
+const sideSceneryObjects = [];
+
+function buildSideScenery(worldCfg) {
+  clearSideScenery();
+  const sc = worldCfg.sideScenery;
+  const totalZ = SEG_COUNT * SEG_LENGTH;
+
+  for (let side = -1; side <= 1; side += 2) { // -1 = left, +1 = right
+    for (let i = 0; i < 8; i++) {
+      const isRock = Math.random() < 0.3;
+      let mesh;
+      if (isRock) {
+        const r = 0.8 + Math.random() * 0.8;
+        mesh = new THREE.Mesh(
+          new THREE.DodecahedronGeometry(r, 0),
+          new THREE.MeshLambertMaterial({ color: sc.rockColor })
+        );
+        mesh.position.y = r * 0.4;
+      } else {
+        const size = sc.treeSizes[Math.floor(Math.random() * sc.treeSizes.length)];
+        mesh = new THREE.Group();
+        const trunk = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.14, 0.2, size.h * 0.4, 6),
+          new THREE.MeshLambertMaterial({ color: sc.trunkColor })
+        );
+        trunk.position.y = size.h * 0.2;
+        const canopy = new THREE.Mesh(
+          new THREE.ConeGeometry(size.w, size.h * 0.65, 6),
+          new THREE.MeshLambertMaterial({ color: sc.treeColor })
+        );
+        canopy.position.y = size.h * 0.72;
+        mesh.add(trunk, canopy);
+      }
+      const xOffset = LANE_WIDTH + 1.5 + Math.random() * 6.5;
+      mesh.position.set(side * xOffset, 0, -(i / 8) * totalZ);
+      mesh.rotation.y = Math.random() * Math.PI * 2;
+      scene.add(mesh);
+      sideSceneryObjects.push(mesh);
+    }
+  }
+}
+
+function clearSideScenery() {
+  sideSceneryObjects.forEach(o => scene.remove(o));
+  sideSceneryObjects.length = 0;
+}
+
+// ── Edge obstacles (collidable, themed per world) ─────────────────────────────
+const activeEdgeObstacles = [];
+let nextEdgeObstacleZ = 25;
+
+function spawnEdgeObstaclePair(z) {
+  const edgeCfgs = currentWorldCfg.edgeObstacles;
+  for (const side of [-1, 1]) {
+    const cfg = edgeCfgs[Math.floor(Math.random() * edgeCfgs.length)];
+    const x = side * (5.5 + Math.random() * 2);
+    const mesh = buildObstacleMesh(cfg);
+    mesh.position.set(x, 0, z);
+    scene.add(mesh);
+    const box = new THREE.Box3().setFromCenterAndSize(
+      new THREE.Vector3(x, cfg.h / 2, z),
+      new THREE.Vector3(cfg.w, cfg.h, cfg.d)
+    );
+    activeEdgeObstacles.push({ mesh, box });
+  }
+}
+
+function clearEdgeObstacles() {
+  activeEdgeObstacles.forEach(o => scene.remove(o.mesh));
+  activeEdgeObstacles.length = 0;
+}
+
+// ── Gold bags ─────────────────────────────────────────────────────────────────
+const activeGoldBags = [];
+let nextGoldBagZ = 0;
+
+function buildGoldBagMesh() {
+  const root = new THREE.Group();
+  const goldMat = new THREE.MeshStandardMaterial({ color: 0xd4a017, metalness: 0.8, roughness: 0.3 });
+  const darkMat = new THREE.MeshStandardMaterial({ color: 0x8b6914, metalness: 0.6, roughness: 0.4 });
+
+  const body = new THREE.Mesh(new THREE.SphereGeometry(0.38, 10, 10), goldMat);
+  body.scale.y = 0.7;
+  body.position.y = 0.27;
+  body.castShadow = true;
+
+  const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.18, 0.18, 8), darkMat);
+  neck.position.y = 0.58;
+
+  const top = new THREE.Mesh(new THREE.SphereGeometry(0.1, 8, 8), darkMat);
+  top.position.y = 0.7;
+
+  root.add(body, neck, top);
+  return root;
+}
+
+function spawnGoldBag(z) {
+  const mesh = buildGoldBagMesh();
+  const x = (Math.random() - 0.5) * (LANE_WIDTH * 1.6);
+  mesh.position.set(x, 0.6, z);
+  scene.add(mesh);
+  const value = Math.floor(5 + Math.random() * 16);
+  const box = new THREE.Box3().setFromCenterAndSize(
+    new THREE.Vector3(x, 0.6, z),
+    new THREE.Vector3(0.9, 0.9, 0.9)
+  );
+  activeGoldBags.push({ mesh, box, value });
+}
+
+function clearGoldBags() {
+  activeGoldBags.forEach(b => scene.remove(b.mesh));
+  activeGoldBags.length = 0;
 }
 
 // ── Collision ────────────────────────────────────────────────────────────────
@@ -341,11 +489,26 @@ function checkCollisions() {
     if (bikeBox.intersectsBox(obs.box)) { triggerCrash(); return; }
   }
 
+  for (const obs of activeEdgeObstacles) {
+    if (bikeBox.intersectsBox(obs.box)) { triggerCrash(); return; }
+  }
+
   for (const col of activeCollectibles) {
     if (!col.collected && bikeBox.intersectsBox(col.box)) {
       col.collected = true;
       col.mesh.visible = false;
       runCollected++;
+      updateHUD(runDist, runCollected);
+    }
+  }
+
+  for (let i = activeGoldBags.length - 1; i >= 0; i--) {
+    const bag = activeGoldBags[i];
+    if (bikeBox.intersectsBox(bag.box)) {
+      runCollected += bag.value;
+      showGoldBagFlash(bag.value);
+      scene.remove(bag.mesh);
+      activeGoldBags.splice(i, 1);
       updateHUD(runDist, runCollected);
     }
   }
@@ -368,6 +531,8 @@ function triggerCrash() {
     hideHUD();
     clearObstacles();
     clearCollectibles();
+    clearEdgeObstacles();
+    clearGoldBags();
 
     if (events.length) {
       showUnlockQueue(events, () => showGameOver(runDist, s.bestDistance));
@@ -394,16 +559,20 @@ function resetRun() {
   scrollZ        = 0;
   runDist        = 0;
   runCollected   = 0;
-  nextObstacleZ  = OBSTACLE_EVERY;
-  nextCollectZ   = COLLECT_EVERY;
+  nextObstacleZ     = 50; // regular spawns resume well past seed obstacles
+  nextEdgeObstacleZ = 25;
+
+  jumpVel = 0;
+  jumpOffset = 0;
 
   if (bikeRoot) {
     bikeRoot.position.set(0, 0, 2);
     bikeRoot.rotation.z = 0;
-    bikeRoot.rotation.y = Math.PI;
+    bikeRoot.rotation.y = 0;
     // Re-seat on ground
     const box = new THREE.Box3().setFromObject(bikeRoot);
     bikeRoot.position.y -= box.min.y;
+    bikeGroundY = bikeRoot.position.y;
   }
 
   // Reset terrain segments
@@ -411,6 +580,13 @@ function resetRun() {
 
   clearObstacles();
   clearCollectibles();
+  clearEdgeObstacles();
+  clearGoldBags();
+  nextGoldBagZ = GOLD_BAG_START + 1000 + Math.random() * 600;
+
+  // Seed first obstacles close to the start so player sees one within ~15 m
+  [-12, -24, -38].forEach(z => spawnObstacle(z));
+
   updateHUD(0, 0);
 }
 
@@ -448,6 +624,18 @@ function gameLoop(now) {
     // Lean
     const targetLean = (keys.right ? -0.25 : keys.left ? 0.25 : 0);
     bikeRoot.rotation.z += (targetLean - bikeRoot.rotation.z) * 8 * dt;
+
+    // Jump trigger
+    if (keys.jump && jumpOffset === 0) {
+      jumpVel = JUMP_FORCE;
+      keys.jump = false; // consume — prevent hold-to-spam
+    }
+    // Jump physics
+    if (jumpOffset > 0 || jumpVel > 0) {
+      jumpVel -= GRAVITY * dt;
+      jumpOffset = Math.max(0, jumpOffset + jumpVel * dt);
+      bikeRoot.position.y = bikeGroundY + jumpOffset;
+    }
   }
 
   // ── Scroll world ──
@@ -492,14 +680,57 @@ function gameLoop(now) {
     }
   }
 
-  // Spawn new obstacles/collectibles
+  // Side scenery scroll and wrap
+  sideSceneryObjects.forEach(obj => {
+    obj.position.z += travel;
+    if (obj.position.z > camera.position.z + 10) {
+      obj.position.z -= SEG_COUNT * SEG_LENGTH;
+    }
+  });
+
+  // Edge obstacles scroll
+  activeEdgeObstacles.forEach(o => {
+    o.mesh.position.z += travel;
+    o.box.translate(new THREE.Vector3(0, 0, travel));
+  });
+  for (let i = activeEdgeObstacles.length - 1; i >= 0; i--) {
+    if (activeEdgeObstacles[i].mesh.position.z > camera.position.z + 5) {
+      scene.remove(activeEdgeObstacles[i].mesh);
+      activeEdgeObstacles.splice(i, 1);
+    }
+  }
+
+  // Spawn obstacles; 65% chance to place a collectible just ahead of each one
   while (scrollZ >= nextObstacleZ) {
-    spawnObstacle(-(SEG_COUNT * SEG_LENGTH - 5));
+    const obs = spawnObstacle(-(SEG_COUNT * SEG_LENGTH - 5));
+    if (Math.random() < 0.65) {
+      const cx = obs.x + (Math.random() - 0.5) * 1.6;
+      const cz = obs.z - (2 + Math.random() * 2);
+      spawnCollectible(cz, currentWorldCfg, cx);
+    }
     nextObstacleZ += OBSTACLE_EVERY - Math.min(6, Math.floor(runDist / 200));
   }
-  while (scrollZ >= nextCollectZ) {
-    spawnCollectible(-(SEG_COUNT * SEG_LENGTH - 8), currentWorldCfg);
-    nextCollectZ += COLLECT_EVERY;
+
+  while (scrollZ >= nextEdgeObstacleZ) {
+    spawnEdgeObstaclePair(-(SEG_COUNT * SEG_LENGTH - 5));
+    nextEdgeObstacleZ += 25;
+  }
+
+  // Gold bags scroll + bob
+  activeGoldBags.forEach(b => {
+    b.mesh.position.z += travel;
+    b.box.translate(new THREE.Vector3(0, 0, travel));
+    b.mesh.position.y = 0.6 + Math.sin(now / 400) * 0.15;
+  });
+  for (let i = activeGoldBags.length - 1; i >= 0; i--) {
+    if (activeGoldBags[i].mesh.position.z > camera.position.z + 5) {
+      scene.remove(activeGoldBags[i].mesh);
+      activeGoldBags.splice(i, 1);
+    }
+  }
+  if (runDist >= GOLD_BAG_START && scrollZ >= nextGoldBagZ) {
+    spawnGoldBag(-(SEG_COUNT * SEG_LENGTH - 5));
+    nextGoldBagZ += 1200 + Math.random() * 600;
   }
 
   checkCollisions();

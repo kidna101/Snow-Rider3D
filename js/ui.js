@@ -78,7 +78,11 @@ export function renderWorldGrid(onSelect) {
     grid.appendChild(card);
   });
 
-  // Continue button
+  // Remove any pre-existing CTA sibling before inserting a new one
+  const existingWorldBtn = grid.nextElementSibling;
+  if (existingWorldBtn && existingWorldBtn.classList.contains('btn-continue')) {
+    existingWorldBtn.remove();
+  }
   const btn = document.createElement('button');
   btn.className = 'btn-primary btn-continue';
   btn.textContent = 'Choose Bike →';
@@ -130,7 +134,11 @@ export function renderBikeGrid(onSelect) {
     grid.appendChild(card);
   });
 
-  // Start button
+  // Remove any pre-existing CTA sibling before inserting a new one
+  const existingBikeBtn = grid.nextElementSibling;
+  if (existingBikeBtn && existingBikeBtn.classList.contains('btn-continue')) {
+    existingBikeBtn.remove();
+  }
   const btn = document.createElement('button');
   btn.className = 'btn-primary btn-continue';
   btn.textContent = 'Ride! 🚵';
@@ -179,6 +187,17 @@ export function showUnlockQueue(events, onDone) {
 
   hideAllScreens();
   showNext(0);
+}
+
+// ── Gold bag flash ───────────────────────────────────────────────────────────
+
+export function showGoldBagFlash(value) {
+  const hud = document.getElementById('hud');
+  const span = document.createElement('span');
+  span.className = 'gold-flash';
+  span.textContent = `+${value} 💰`;
+  hud.appendChild(span);
+  setTimeout(() => span.remove(), 1600);
 }
 
 // ── Shake ────────────────────────────────────────────────────────────────────
