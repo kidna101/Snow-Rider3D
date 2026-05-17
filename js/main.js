@@ -439,23 +439,43 @@ function clearEdgeObstacles() {
 // ── Gold bags ─────────────────────────────────────────────────────────────────
 const activeGoldBags = [];
 let nextGoldBagZ = 0;
+let goldBagTemplate = null; // loaded from GoldBag.glb
+
+loader.load(
+  'GoldBag.glb',
+  (gltf) => {
+    const root = gltf.scene;
+    // Normalise to ~0.8 m tall, seated on ground
+    const box = new THREE.Box3().setFromObject(root);
+    const size = box.getSize(new THREE.Vector3());
+    const targetH = 0.8;
+    root.scale.setScalar(targetH / size.y);
+    // Re-measure and seat
+    const box2 = new THREE.Box3().setFromObject(root);
+    root.position.y -= box2.min.y;
+    root.traverse(c => { if (c.isMesh) c.castShadow = true; });
+    goldBagTemplate = root;
+  },
+  undefined,
+  (err) => { console.warn('GoldBag.glb failed to load, using fallback', err); }
+);
 
 function buildGoldBagMesh() {
+  if (goldBagTemplate) {
+    return goldBagTemplate.clone(true);
+  }
+  // Fallback primitive
   const root = new THREE.Group();
   const goldMat = new THREE.MeshStandardMaterial({ color: 0xd4a017, metalness: 0.8, roughness: 0.3 });
   const darkMat = new THREE.MeshStandardMaterial({ color: 0x8b6914, metalness: 0.6, roughness: 0.4 });
-
   const body = new THREE.Mesh(new THREE.SphereGeometry(0.38, 10, 10), goldMat);
   body.scale.y = 0.7;
   body.position.y = 0.27;
   body.castShadow = true;
-
   const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.18, 0.18, 8), darkMat);
   neck.position.y = 0.58;
-
   const top = new THREE.Mesh(new THREE.SphereGeometry(0.1, 8, 8), darkMat);
   top.position.y = 0.7;
-
   root.add(body, neck, top);
   return root;
 }
@@ -463,11 +483,11 @@ function buildGoldBagMesh() {
 function spawnGoldBag(z) {
   const mesh = buildGoldBagMesh();
   const x = (Math.random() - 0.5) * (LANE_WIDTH * 1.6);
-  mesh.position.set(x, 0.6, z);
+  mesh.position.set(x, 0, z);
   scene.add(mesh);
   const value = Math.floor(5 + Math.random() * 16);
   const box = new THREE.Box3().setFromCenterAndSize(
-    new THREE.Vector3(x, 0.6, z),
+    new THREE.Vector3(x, 0.4, z),
     new THREE.Vector3(0.9, 0.9, 0.9)
   );
   activeGoldBags.push({ mesh, box, value });
@@ -720,7 +740,7 @@ function gameLoop(now) {
   activeGoldBags.forEach(b => {
     b.mesh.position.z += travel;
     b.box.translate(new THREE.Vector3(0, 0, travel));
-    b.mesh.position.y = 0.6 + Math.sin(now / 400) * 0.15;
+    b.mesh.position.y = 0.3 + Math.sin(now / 400) * 0.15;
   });
   for (let i = activeGoldBags.length - 1; i >= 0; i--) {
     if (activeGoldBags[i].mesh.position.z > camera.position.z + 5) {
