@@ -1,26 +1,90 @@
 <!DOCTYPE html>
-<html lang="en-us">
+<html lang="en">
 <head>
-    <meta charset="utf-8">
-    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
-    <title>Snow Rider 3D - Thrilling Skiing Adventure Game</title>
-    <meta name="description" content="Immerse yourself in Snow Rider 3D, a thrilling skiing adventure game set in breathtaking mountain landscapes. Ride your sleigh down snowy slopes, dodge obstacles, and collect gifts for an exhilarating experience.">
-    <meta name="theme-color" content="#007ACC">
-    <link rel="shortcut icon" href="TemplateData/favicon.ico">
-    <link rel="stylesheet" href="TemplateData/style.css">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="author" content="Your Name">
-    <meta name="keywords" content="Snow Rider 3D, skiing game, winter sports, snowboarding, ski game, mountain landscapes, skiing adventure, snowboarding adventure, snowy mountain, sleigh ride, winter game">
-    <script src="TemplateData/UnityProgress.js"></script>
-    <script src="Build/UnityLoader.js"></script>
-    <script>
-        var gameInstance = UnityLoader.instantiate("gameContainer", "Build/SnowRider3D-gd-1.json", {onProgress: UnityProgress,Module:{onRuntimeInitialized: function() {UnityProgress(gameInstance, "complete")}}});
-    </script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bike Rider 3D</title>
+  <link rel="stylesheet" href="css/style.css">
 </head>
-<body style="overflow:hidden;padding:0px;margin:0px;">
-    <div class="webgl-content">
-        <div id="gameContainer" style="width: 960px; height: 600px; margin: auto"></div>
+<body>
+  <div id="game-wrapper">
+    <canvas id="game-canvas"></canvas>
+
+    <!-- START SCREEN -->
+    <div id="screen-start" class="overlay">
+      <div class="overlay-card start-card">
+        <h1>Bike Rider 3D</h1>
+        <div class="controls-block">
+          <p>← → Arrow keys or A / D to steer</p>
+          <p>Avoid obstacles &mdash; collect items along the trail</p>
+        </div>
+        <p class="storage-note">Your progress is saved in this browser. Clearing browser data will reset it.</p>
+        <p class="cta pulse">Tap or press any key to begin</p>
+      </div>
     </div>
+
+    <!-- WORLD SELECT -->
+    <div id="screen-world" class="overlay hidden">
+      <div class="overlay-card">
+        <h2>Choose World</h2>
+        <div class="selector-grid" id="world-grid"></div>
+      </div>
+    </div>
+
+    <!-- BIKE SELECT -->
+    <div id="screen-bike" class="overlay hidden">
+      <div class="overlay-card">
+        <h2>Choose Bike</h2>
+        <div class="selector-grid" id="bike-grid"></div>
+        <button class="btn-back" id="btn-back-world">&#8592; Back</button>
+      </div>
+    </div>
+
+    <!-- UNLOCK CELEBRATION -->
+    <div id="screen-unlock" class="overlay hidden">
+      <div class="overlay-card unlock-card">
+        <div class="unlock-icon">🎉</div>
+        <h2 id="unlock-title">Unlocked!</h2>
+        <p id="unlock-body"></p>
+      </div>
+    </div>
+
+    <!-- GAME OVER -->
+    <div id="screen-gameover" class="overlay hidden">
+      <div class="overlay-card">
+        <h2>Wiped Out!</h2>
+        <div class="distance-block">
+          <div class="dist-stat">
+            <span class="dist-label">This run</span>
+            <span class="dist-value" id="go-run-dist">0 m</span>
+          </div>
+          <div class="dist-stat">
+            <span class="dist-label">Best</span>
+            <span class="dist-value" id="go-best-dist">—</span>
+          </div>
+        </div>
+        <div class="btn-row">
+          <button class="btn-primary" id="btn-play-again">Play Again</button>
+          <button class="btn-secondary" id="btn-change-world">Change World / Bike</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- HUD (shown during play) -->
+    <div id="hud" class="hidden">
+      <span id="hud-dist">0 m</span>
+      <span id="hud-collectibles">⭐ 0</span>
+    </div>
+  </div>
+
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.163.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.163.0/examples/jsm/"
+      }
+    }
+  </script>
+  <script type="module" src="js/main.js"></script>
 </body>
 </html>
-

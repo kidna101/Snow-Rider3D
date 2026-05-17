@@ -1,0 +1,296 @@
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: #000;
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  overflow: hidden;
+  height: 100dvh;
+  width: 100dvw;
+}
+
+#game-wrapper {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+#game-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* ── Overlays ── */
+.overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.55);
+  z-index: 10;
+}
+
+.overlay.hidden { display: none; }
+
+.overlay-card {
+  background: rgba(15, 20, 30, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 16px;
+  padding: 36px 40px;
+  text-align: center;
+  color: #f0f4ff;
+  max-width: 480px;
+  width: 90%;
+  box-shadow: 0 8px 40px rgba(0,0,0,0.6);
+}
+
+.overlay-card h1 {
+  font-size: 2.4rem;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  margin-bottom: 20px;
+  color: #fff;
+  text-shadow: 0 0 20px rgba(100,180,255,0.4);
+}
+
+.overlay-card h2 {
+  font-size: 1.7rem;
+  font-weight: 700;
+  margin-bottom: 20px;
+  color: #fff;
+}
+
+/* ── Start screen ── */
+.controls-block {
+  background: rgba(255,255,255,0.06);
+  border-radius: 10px;
+  padding: 14px 20px;
+  margin-bottom: 16px;
+  line-height: 1.7;
+  font-size: 0.95rem;
+  color: #c8d8f0;
+}
+
+.storage-note {
+  font-size: 0.75rem;
+  color: #778899;
+  margin-bottom: 18px;
+  line-height: 1.5;
+}
+
+.cta {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: #7dc4ff;
+  letter-spacing: 0.05em;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.45; }
+}
+.pulse { animation: pulse 1.6s ease-in-out infinite; }
+
+/* ── Selector grid ── */
+.selector-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  margin-bottom: 20px;
+}
+
+.selector-card {
+  background: rgba(255,255,255,0.06);
+  border: 2px solid rgba(255,255,255,0.12);
+  border-radius: 12px;
+  padding: 18px 12px;
+  cursor: pointer;
+  transition: border-color 0.18s, background 0.18s;
+  user-select: none;
+}
+
+.selector-card:hover:not(.locked) {
+  background: rgba(100,180,255,0.12);
+  border-color: rgba(100,180,255,0.5);
+}
+
+.selector-card.selected {
+  border-color: #5ab4ff;
+  background: rgba(90,180,255,0.15);
+}
+
+.selector-card.locked {
+  opacity: 0.55;
+  cursor: default;
+  position: relative;
+}
+
+.selector-card .card-icon {
+  font-size: 2rem;
+  margin-bottom: 8px;
+}
+
+.selector-card .card-name {
+  font-weight: 700;
+  font-size: 0.95rem;
+  margin-bottom: 4px;
+}
+
+.selector-card .card-desc {
+  font-size: 0.75rem;
+  color: #8899aa;
+  line-height: 1.4;
+}
+
+.lock-label {
+  display: inline-block;
+  margin-top: 8px;
+  font-size: 0.72rem;
+  color: #aab8cc;
+  background: rgba(0,0,0,0.4);
+  border-radius: 6px;
+  padding: 2px 8px;
+}
+
+/* ── Progress bar ── */
+.progress-bar-wrap {
+  background: rgba(255,255,255,0.08);
+  border-radius: 20px;
+  height: 8px;
+  margin-top: 10px;
+  overflow: hidden;
+}
+
+.progress-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #5ab4ff, #38e8b0);
+  border-radius: 20px;
+  transition: width 0.4s ease;
+}
+
+/* ── Shake animation (locked item click) ── */
+@keyframes shake {
+  0%   { transform: translateX(0); }
+  15%  { transform: translateX(-7px) rotate(-2deg); }
+  30%  { transform: translateX(7px) rotate(2deg); }
+  45%  { transform: translateX(-5px) rotate(-1deg); }
+  60%  { transform: translateX(5px) rotate(1deg); }
+  75%  { transform: translateX(-3px); }
+  90%  { transform: translateX(3px); }
+  100% { transform: translateX(0); }
+}
+
+.shake { animation: shake 0.45s ease; }
+
+/* ── Unlock celebration ── */
+.unlock-card {
+  animation: popIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes popIn {
+  from { transform: scale(0.7); opacity: 0; }
+  to   { transform: scale(1);   opacity: 1; }
+}
+
+.unlock-icon { font-size: 3rem; margin-bottom: 12px; }
+
+/* ── Game Over ── */
+.distance-block {
+  display: flex;
+  gap: 24px;
+  justify-content: center;
+  margin-bottom: 24px;
+}
+
+.dist-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.dist-label {
+  font-size: 0.78rem;
+  color: #889aaa;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.dist-value {
+  font-size: 1.6rem;
+  font-weight: 800;
+  color: #7dc4ff;
+}
+
+.btn-row {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+/* ── Buttons ── */
+.btn-primary, .btn-secondary, .btn-back {
+  border: none;
+  border-radius: 10px;
+  padding: 12px 24px;
+  font-size: 0.95rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: opacity 0.15s, transform 0.12s;
+}
+
+.btn-primary:hover, .btn-secondary:hover, .btn-back:hover {
+  opacity: 0.85;
+  transform: translateY(-1px);
+}
+
+.btn-primary {
+  background: #5ab4ff;
+  color: #001122;
+}
+
+.btn-secondary {
+  background: rgba(255,255,255,0.1);
+  color: #c8d8f0;
+  border: 1px solid rgba(255,255,255,0.18);
+}
+
+.btn-back {
+  background: transparent;
+  color: #889aaa;
+  font-size: 0.85rem;
+  padding: 8px 16px;
+  margin-top: 4px;
+}
+
+/* ── Continue button on selector screens ── */
+.btn-continue {
+  width: 100%;
+  margin-top: 4px;
+}
+
+/* ── HUD ── */
+#hud {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 24px;
+  background: rgba(0,0,0,0.45);
+  border-radius: 30px;
+  padding: 8px 22px;
+  font-size: 1rem;
+  font-weight: 700;
+  color: #f0f4ff;
+  z-index: 5;
+  pointer-events: none;
+}
+
+#hud.hidden { display: none; }
+
+#hud-dist, #hud-collectibles {
+  letter-spacing: 0.04em;
+}
