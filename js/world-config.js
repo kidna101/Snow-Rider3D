@@ -46,6 +46,8 @@ export const WORLDS = {
     collectible: { color: '#fffde0', emissive: '#e0c800', label: '⭐', geom: 'star' },
     // Decorative strip colours (trees in the distance)
     treeline: '#1a4d2e',
+    // Canyon side walls (procedural)
+    canyonWall: { color: '#7a8da0', height: 28 },
   },
   illawarra: {
     id: 'illawarra',
@@ -89,6 +91,8 @@ export const WORLDS = {
     // Collectibles
     collectible: { color: '#ffcc66', emissive: '#dd7700', label: '🌸', geom: 'sphere' },
     treeline: '#3d6e52',
+    // Canyon side walls (procedural)
+    canyonWall: { color: '#c8a878', height: 22 },
   },
 };
 
@@ -101,7 +105,14 @@ export const BIKES = {
     locked: false,
     lockDesc: null,
     modelFile: 'bike.glb',
-    tint: null,             // no colour override
+    tint: null,
+    shopColors: [
+      { key: 'red',    label: 'Canyon Red',   hex: '#c0392b', cost: 15 },
+      { key: 'gold',   label: 'Desert Gold',  hex: '#d4a017', cost: 25 },
+      { key: 'teal',   label: 'Glacier Teal', hex: '#00b4d8', cost: 20 },
+      { key: 'black',  label: 'Midnight',     hex: '#1a1a2e', cost: 30 },
+      { key: 'lime',   label: 'Neon Lime',    hex: '#7fff00', cost: 20 },
+    ],
   },
   cruiser: {
     id: 'cruiser',
@@ -110,8 +121,14 @@ export const BIKES = {
     desc: 'Relaxed, wide tyres',
     locked: true,
     lockDesc: 'Collect 20 items to unlock',
-    modelFile: 'bike.glb',  // same mesh, different tint until a separate model is sourced
-    tint: '#f4a261',        // warm orange tint on the frame material
+    modelFile: 'bike.glb',
+    tint: '#f4a261',
+    shopColors: [
+      { key: 'purple', label: 'Sunset Purple', hex: '#8e44ad', cost: 15 },
+      { key: 'ocean',  label: 'Ocean Blue',    hex: '#1a7abf', cost: 20 },
+      { key: 'coral',  label: 'Coral Blush',   hex: '#e8735a', cost: 15 },
+      { key: 'forest', label: 'Forest Green',  hex: '#27ae60', cost: 25 },
+    ],
   },
 };
 

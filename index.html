@@ -15,12 +15,15 @@
       <div class="overlay-card start-card">
         <h1>Bike Rider 3D</h1>
         <div class="controls-block">
-          <p>← → Arrow keys or A / D to steer</p>
-          <p>Space or ↑ to jump over low obstacles</p>
-          <p>Avoid obstacles &mdash; collect items along the trail</p>
+          <p>← → / A D &nbsp;steer &nbsp;|&nbsp; ↑ / Space &nbsp;jump</p>
+          <p>↓ hold &nbsp;wheelie &nbsp;|&nbsp; ↑ ↑ mid-air &nbsp;double jump</p>
+          <p>Esc &nbsp;pause &nbsp;|&nbsp; collect 🪙 &mdash; spend in the Market</p>
         </div>
-        <p class="storage-note">Your progress is saved in this browser. Clearing browser data will reset it.</p>
-        <p class="cta pulse">Tap or press any key to begin</p>
+        <p class="storage-note">Progress saved in this browser.</p>
+        <div class="btn-row start-btn-row">
+          <p class="cta pulse" id="start-cta">Tap or press any key to begin</p>
+          <button class="btn-secondary btn-market-start" id="btn-market-from-start">Market 🪙</button>
+        </div>
       </div>
     </div>
 
@@ -63,11 +66,40 @@
             <span class="dist-label">Best</span>
             <span class="dist-value" id="go-best-dist">—</span>
           </div>
+          <div class="dist-stat">
+            <span class="dist-label">Coins</span>
+            <span class="dist-value coin-value" id="go-run-coins">0 🪙</span>
+          </div>
         </div>
         <div class="btn-row">
           <button class="btn-primary" id="btn-play-again">Play Again</button>
           <button class="btn-secondary" id="btn-change-world">Change World / Bike</button>
+          <button class="btn-secondary" id="btn-market-from-gameover">Market 🪙</button>
         </div>
+      </div>
+    </div>
+
+    <!-- PAUSE SCREEN -->
+    <div id="screen-pause" class="overlay hidden">
+      <div class="overlay-card">
+        <h2>Paused</h2>
+        <div class="btn-row" style="flex-direction:column; gap:10px;">
+          <button class="btn-primary" id="btn-resume">▶ Resume</button>
+          <button class="btn-secondary" id="btn-quit-to-menu">Quit to Menu</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- MARKET SCREEN -->
+    <div id="screen-market" class="overlay hidden">
+      <div class="overlay-card market-card">
+        <div class="market-header">
+          <h2>Bike Market</h2>
+          <span class="market-balance" id="market-balance">0 🪙</span>
+        </div>
+        <div class="market-tabs" id="market-tabs"></div>
+        <div class="market-grid" id="market-grid"></div>
+        <button class="btn-back" id="btn-market-close">✕ Close</button>
       </div>
     </div>
 
@@ -75,6 +107,7 @@
     <div id="hud" class="hidden">
       <span id="hud-dist">0 m</span>
       <span id="hud-collectibles">⭐ 0</span>
+      <button id="btn-mute" class="btn-mute">🔊</button>
     </div>
   </div>
 

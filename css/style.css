@@ -279,6 +279,7 @@ body {
   transform: translateX(-50%);
   display: flex;
   gap: 24px;
+  align-items: center;
   background: rgba(0,0,0,0.45);
   border-radius: 30px;
   padding: 8px 22px;
@@ -294,6 +295,133 @@ body {
 #hud-dist, #hud-collectibles {
   letter-spacing: 0.04em;
 }
+
+/* ── Mute button ── */
+.btn-mute {
+  pointer-events: auto;
+  background: none;
+  border: none;
+  font-size: 1.1rem;
+  cursor: pointer;
+  padding: 0 2px;
+  line-height: 1;
+  opacity: 0.8;
+  transition: opacity 0.15s;
+}
+.btn-mute:hover { opacity: 1; }
+
+/* ── Coins stat on game-over ── */
+.coin-value { color: #ffd700; }
+
+/* ── Start-screen btn row ── */
+.start-btn-row {
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+/* ── Market screen ── */
+.market-card {
+  max-width: 560px;
+  max-height: 85vh;
+  overflow-y: auto;
+}
+
+.market-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.market-balance {
+  font-size: 1.3rem;
+  font-weight: 800;
+  color: #ffd700;
+}
+
+.market-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.market-tab {
+  flex: 1;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 2px solid rgba(255,255,255,0.15);
+  background: rgba(255,255,255,0.06);
+  color: #c8d8f0;
+  font-weight: 700;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.market-tab.active {
+  border-color: #5ab4ff;
+  background: rgba(90,180,255,0.15);
+  color: #fff;
+}
+
+.market-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.color-swatch-card {
+  border-radius: 10px;
+  padding: 12px 10px;
+  text-align: center;
+  border: 2px solid rgba(255,255,255,0.12);
+  background: rgba(255,255,255,0.06);
+  transition: border-color 0.15s;
+}
+.color-swatch-card.equipped {
+  border-color: #5ab4ff;
+}
+.color-swatch-card.default-swatch {
+  border-color: rgba(255,255,255,0.25);
+}
+
+.swatch-dot {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  margin: 0 auto 8px;
+  border: 2px solid rgba(255,255,255,0.3);
+}
+
+.swatch-name {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #e0eaff;
+  margin-bottom: 6px;
+}
+
+.swatch-cost {
+  font-size: 0.75rem;
+  color: #ffd700;
+  margin-bottom: 8px;
+}
+
+.swatch-btn {
+  width: 100%;
+  padding: 5px 0;
+  border-radius: 6px;
+  border: none;
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+.swatch-btn:hover { opacity: 0.85; }
+.swatch-btn.buy   { background: #5ab4ff; color: #001122; }
+.swatch-btn.equip { background: rgba(255,255,255,0.15); color: #c8d8f0; }
+.swatch-btn.equipped-label { background: rgba(90,180,255,0.25); color: #7dc4ff; }
+.swatch-btn:disabled { opacity: 0.4; cursor: default; }
 
 /* ── Gold bag pickup flash ── */
 @keyframes goldFlash {

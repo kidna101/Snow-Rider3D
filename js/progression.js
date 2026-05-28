@@ -1,30 +1,48 @@
 import { PROGRESSION } from './world-config.js';
 
-const KEY = 'brGame_v1';
-const CURRENT_VERSION = 1;
+const KEY = 'brGame_v2';
+const OLD_KEY = 'brGame_v1';
+const CURRENT_VERSION = 2;
 
 const DEFAULT_STATE = {
   version: CURRENT_VERSION,
   totalDistance: 0,       // cumulative metres across all runs
-  totalCollectibles: 0,   // cumulative count across all runs
+  totalCollectibles: 0,   // cumulative count across all runs (drives unlock threshold)
+  totalCoins: 0,          // spendable economy (coins + gold bag values)
   bestDistance: 0,        // single-run best, metres
   unlockedWorlds: ['mountain'],
   unlockedBikes:  ['mountain'],
   selectedWorld: 'mountain',
   selectedBike:  'mountain',
   pendingUnlockIds: [],   // celebrations that haven't been shown yet
+  purchasedColors: { mountain: [], cruiser: [] },
+  activeColorSlot: { mountain: null, cruiser: null },
+  muted: false,
 };
 
 function migrateState(raw) {
   if (!raw || typeof raw !== 'object') return { ...DEFAULT_STATE };
-  // Future migrations go here as version increments.
-  // For now, just backfill any missing keys.
-  return { ...DEFAULT_STATE, ...raw, version: CURRENT_VERSION };
+  const migrated = { ...DEFAULT_STATE, ...raw, version: CURRENT_VERSION };
+  // Ensure nested objects exist (upgrade from v1)
+  if (!migrated.purchasedColors || typeof migrated.purchasedColors !== 'object') {
+    migrated.purchasedColors = { mountain: [], cruiser: [] };
+  }
+  if (!migrated.purchasedColors.mountain) migrated.purchasedColors.mountain = [];
+  if (!migrated.purchasedColors.cruiser)  migrated.purchasedColors.cruiser  = [];
+  if (!migrated.activeColorSlot || typeof migrated.activeColorSlot !== 'object') {
+    migrated.activeColorSlot = { mountain: null, cruiser: null };
+  }
+  return migrated;
 }
 
 export function getState() {
   try {
     const raw = JSON.parse(localStorage.getItem(KEY));
+    if (!raw) {
+      // Migrate from v1 if present
+      const oldRaw = JSON.parse(localStorage.getItem(OLD_KEY));
+      if (oldRaw) return migrateState(oldRaw);
+    }
     return migrateState(raw);
   } catch {
     return { ...DEFAULT_STATE };
@@ -46,16 +64,17 @@ export function setState(partial) {
 /**
  * Called at run-end with the run's totals.
  * Returns an array of unlock-event objects that were newly triggered this call.
- * Each event is also pushed into pendingUnlockIds (survives crash/reload).
  *
- * Unlock event shape: { id, type, title, body }
- *   type: 'bike' | 'world'
+ * @param {number} runDistanceMetres
+ * @param {number} runCollectibles   — coin count (drives unlock threshold)
+ * @param {number} runGoldBagValue   — sum of gold bag values (added to totalCoins only)
  */
-export function recordRunEnd(runDistanceMetres, runCollectibles) {
+export function recordRunEnd(runDistanceMetres, runCollectibles, runGoldBagValue = 0) {
   const s = getState();
 
   const newTotalDist  = s.totalDistance + runDistanceMetres;
   const newTotalItems = s.totalCollectibles + runCollectibles;
+  const newTotalCoins = (s.totalCoins || 0) + runCollectibles + runGoldBagValue;
   const newBest       = Math.max(s.bestDistance, runDistanceMetres);
 
   const newWorlds  = [...s.unlockedWorlds];
@@ -96,12 +115,13 @@ export function recordRunEnd(runDistanceMetres, runCollectibles) {
   }
 
   setState({
-    totalDistance:    newTotalDist,
+    totalDistance:     newTotalDist,
     totalCollectibles: newTotalItems,
-    bestDistance:     newBest,
-    unlockedWorlds:   newWorlds,
-    unlockedBikes:    newBikes,
-    pendingUnlockIds: pending,
+    totalCoins:        newTotalCoins,
+    bestDistance:      newBest,
+    unlockedWorlds:    newWorlds,
+    unlockedBikes:     newBikes,
+    pendingUnlockIds:  pending,
   });
 
   return newEvents;

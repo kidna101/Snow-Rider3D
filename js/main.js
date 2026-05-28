@@ -6,7 +6,9 @@ import {
   showScreen, hideAllScreens, showHUD, hideHUD,
   renderWorldGrid, renderBikeGrid,
   showUnlockQueue, showGameOver, updateHUD, showGoldBagFlash,
+  openMarket, closeMarket, initMuteButton,
 } from './ui.js';
+import { initAudio, playSound } from './audio.js';
 
 // ── Constants ────────────────────────────────────────────────────────────────
 const BIKE_X_LIMIT    = 8;           // metres left/right (full terrain width)
@@ -22,7 +24,10 @@ const COLLECT_SIZE    = 0.55;       // collision half-extent
 const OBS_SIZE        = 0.55;       // collision half-extent
 const JUMP_FORCE      = 7;          // m/s initial upward velocity
 const GRAVITY         = 18;         // m/s² downward acceleration
-const GOLD_BAG_START  = 1000;       // metres before first gold bag can appear
+const GOLD_BAG_START      = 1000;   // metres before first gold bag can appear
+const COLLISION_SHRINK_PROC = 0.72; // hitbox shrink factor — procedural obstacles
+const COLLISION_SHRINK_GLB  = 0.82; // hitbox shrink factor — GLB obstacles
+const RAVINE_JUMP_MIN       = 0.3;  // min jump height (m) to survive a ravine
 
 // ── Three.js setup ───────────────────────────────────────────────────────────
 const canvas   = document.getElementById('game-canvas');
@@ -125,8 +130,23 @@ function loadBike(bikeId, onReady) {
       // Face toward downhill (front wheel faces away from camera)
       bikeRoot.rotation.y = 0;
 
-      // Optional tint
-      if (cfg.tint) {
+      // Active shop colour overrides base tint (if purchased)
+      const stateNow = getState();
+      const activeColorKey = stateNow.activeColorSlot?.[bikeId] || null;
+      const activeColorDef = activeColorKey && cfg.shopColors
+        ? cfg.shopColors.find(c => c.key === activeColorKey)
+        : null;
+
+      if (activeColorDef) {
+        const shopColor = new THREE.Color(activeColorDef.hex);
+        bikeRoot.traverse(child => {
+          if (child.isMesh && child.material) {
+            const mats = Array.isArray(child.material) ? child.material : [child.material];
+            mats.forEach(m => { m.color.set(shopColor); });
+          }
+        });
+      } else if (cfg.tint) {
+        // Default base tint (e.g. cruiser orange)
         const tintColor = new THREE.Color(cfg.tint);
         bikeRoot.traverse(child => {
           if (child.isMesh && child.material) {
@@ -302,25 +322,45 @@ let gameRunning    = false;
 let speed          = BASE_SPEED;
 let scrollZ        = 0;       // how far the world has scrolled (m)
 let runDist        = 0;       // this run distance (m)
-let runCollected   = 0;
+let runCollected   = 0;       // coin pickups this run
+let runGoldBagValue = 0;      // gold-bag coins accumulated this run
 let nextObstacleZ  = OBSTACLE_EVERY;
 let crashed        = false;
+let pausedByUser   = false;
 
 // Jump state
 let jumpVel        = 0;
 let jumpOffset     = 0;
 let bikeGroundY    = 0;
+let canDoubleJump  = false;
+
+// Wheelie state
+let wheeliePitch   = 0;
 
 // Hen spawner state
 let nextHenZ = 600;
 
+// Ravine / boulder spawner state
+let nextRavineZ  = 500;
+let nextBoulderZ = 800;
+const activeRavines  = [];
+const activeBoulders = [];
+
 // Input
-const keys = { left: false, right: false, jump: false };
+const keys = { left: false, right: false, jump: false, down: false };
 
 window.addEventListener('keydown', e => {
   if (e.key === 'ArrowLeft'  || e.key === 'a' || e.key === 'A') keys.left  = true;
   if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') keys.right = true;
   if (e.key === ' ' || e.key === 'ArrowUp') keys.jump = true;
+  if (e.key === 'ArrowDown'  || e.key === 's' || e.key === 'S') keys.down  = true;
+  if (e.key === 'Escape') {
+    if (gameRunning && !pausedByUser) {
+      pausedByUser = true;
+      gameRunning  = false;
+      showScreen('screen-pause');
+    }
+  }
   if (e.key === 'Enter' && !gameRunning) {
     const visibleOverlay = document.querySelector('.overlay:not(.hidden)');
     if (visibleOverlay) {
@@ -333,6 +373,7 @@ window.addEventListener('keyup', e => {
   if (e.key === 'ArrowLeft'  || e.key === 'a' || e.key === 'A') keys.left  = false;
   if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') keys.right = false;
   if (e.key === ' ' || e.key === 'ArrowUp') keys.jump = false;
+  if (e.key === 'ArrowDown'  || e.key === 's' || e.key === 'S') keys.down  = false;
 });
 
 // Pause delta on tab-hide
@@ -387,6 +428,75 @@ function applyWorld(worldId) {
   }
 
   buildSideScenery(w);
+  buildCanyonWalls(w);
+}
+
+// ── Canyon walls ──────────────────────────────────────────────────────────────
+const canyonWalls = [];
+
+function buildCanyonWalls(worldCfg) {
+  clearCanyonWalls();
+  const cw = worldCfg.canyonWall;
+  if (!cw) return;
+
+  const totalDepth = SEG_COUNT * SEG_LENGTH + 10;
+  const wallGeo = new THREE.BoxGeometry(2.5, cw.height, totalDepth);
+  const wallMat = new THREE.MeshLambertMaterial({ color: new THREE.Color(cw.color) });
+
+  for (const side of [-1, 1]) {
+    const wall = new THREE.Mesh(wallGeo, wallMat);
+    wall.receiveShadow = true;
+    wall.position.set(side * (LANE_WIDTH + 1.25), cw.height / 2 - 0.5, -(totalDepth / 2 - camera.position.z));
+    scene.add(wall);
+    canyonWalls.push(wall);
+  }
+}
+
+function clearCanyonWalls() {
+  canyonWalls.forEach(w => scene.remove(w));
+  canyonWalls.length = 0;
+}
+
+// ── Ravines ───────────────────────────────────────────────────────────────────
+
+function spawnRavine(z) {
+  const crackW = 2.5 + Math.random() * 2.5; // 2.5–5 m wide crack
+  const geo = new THREE.PlaneGeometry(LANE_WIDTH * 2 - 0.5, crackW);
+  geo.rotateX(-Math.PI / 2);
+  const mat = new THREE.MeshLambertMaterial({ color: 0x03060a });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.position.set(0, 0.02, z);
+  scene.add(mesh);
+  activeRavines.push({ mesh, halfW: crackW / 2, warned: false });
+}
+
+function clearRavines() {
+  activeRavines.forEach(r => scene.remove(r.mesh));
+  activeRavines.length = 0;
+}
+
+// ── Boulders ──────────────────────────────────────────────────────────────────
+
+function spawnBoulder(z) {
+  const radius = 0.8 + Math.random() * 0.6;
+  const geo = new THREE.DodecahedronGeometry(radius, 1);
+  const mat = new THREE.MeshLambertMaterial({ color: 0x8b8b8b });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.castShadow = true;
+  const x = (Math.random() - 0.5) * LANE_WIDTH;
+  mesh.position.set(x, radius, z);
+  scene.add(mesh);
+  const vx = (Math.random() < 0.5 ? 1 : -1) * (3 + Math.random() * 4); // lateral m/s
+  const box = new THREE.Box3().setFromCenterAndSize(
+    mesh.position.clone(),
+    new THREE.Vector3(radius * 1.6, radius * 1.6, radius * 1.6)
+  );
+  activeBoulders.push({ mesh, box, vx, radius });
+}
+
+function clearBoulders() {
+  activeBoulders.forEach(b => scene.remove(b.mesh));
+  activeBoulders.length = 0;
 }
 
 // ── Spawn helpers ────────────────────────────────────────────────────────────
@@ -410,7 +520,11 @@ function spawnObstacle(z) {
     if (cfg.collidable === false) {
       activeDecorations.push({ mesh });
     } else {
-      const box = new THREE.Box3().setFromObject(mesh);
+      // Shrink the bounding box so physical contact is required
+      const rawBox = new THREE.Box3().setFromObject(mesh);
+      const centre = rawBox.getCenter(new THREE.Vector3());
+      const size   = rawBox.getSize(new THREE.Vector3()).multiplyScalar(COLLISION_SHRINK_GLB);
+      const box    = new THREE.Box3().setFromCenterAndSize(centre, size);
       activeObstacles.push({ mesh, box });
     }
     return { x, z };
@@ -421,10 +535,12 @@ function spawnObstacle(z) {
   mesh.position.set(x, 0, z);
   scene.add(mesh);
 
-  const size = new THREE.Vector3(cfg.w, cfg.h, cfg.d);
+  // Shrink the hitbox so the bike must physically touch the obstacle
+  const shrunkW = cfg.w  * COLLISION_SHRINK_PROC;
+  const shrunkD = (cfg.d || cfg.w) * COLLISION_SHRINK_PROC;
   const box  = new THREE.Box3().setFromCenterAndSize(
     new THREE.Vector3(x, cfg.h / 2, z),
-    size
+    new THREE.Vector3(shrunkW, cfg.h, shrunkD)
   );
   activeObstacles.push({ mesh, box });
   return { x, z };
@@ -655,8 +771,13 @@ function spawnHen(z) {
   const x = (Math.random() - 0.5) * (LANE_WIDTH * 2.8);
   mesh.position.set(x, 0, z);
   scene.add(mesh);
-  const box = new THREE.Box3().setFromObject(mesh);
+  // Shrink hen hitbox — must really walk into it
+  const rawBox = new THREE.Box3().setFromObject(mesh);
+  const centre = rawBox.getCenter(new THREE.Vector3());
+  const size   = rawBox.getSize(new THREE.Vector3()).multiplyScalar(COLLISION_SHRINK_GLB);
+  const box    = new THREE.Box3().setFromCenterAndSize(centre, size);
   activeObstacles.push({ mesh, box });
+  playSound('hen');
 }
 
 // ── Collision ────────────────────────────────────────────────────────────────
@@ -664,7 +785,12 @@ const bikeBox = new THREE.Box3();
 
 function checkCollisions() {
   if (!bikeRoot) return;
-  bikeBox.setFromObject(bikeRoot);
+
+  // Manual tight hitbox — much smaller than the full GLB bounding box
+  bikeBox.setFromCenterAndSize(
+    new THREE.Vector3(bikeRoot.position.x, bikeRoot.position.y + 0.45, bikeRoot.position.z),
+    new THREE.Vector3(0.50, 0.80, 0.85)
+  );
 
   for (const obs of activeObstacles) {
     if (bikeBox.intersectsBox(obs.box)) { triggerCrash(); return; }
@@ -674,11 +800,17 @@ function checkCollisions() {
     if (bikeBox.intersectsBox(obs.box)) { triggerCrash(); return; }
   }
 
+  // Boulder collision
+  for (const b of activeBoulders) {
+    if (bikeBox.intersectsBox(b.box)) { triggerCrash(); return; }
+  }
+
   for (const col of activeCollectibles) {
     if (!col.collected && bikeBox.intersectsBox(col.box)) {
       col.collected = true;
       col.mesh.visible = false;
       runCollected++;
+      playSound('coin');
       updateHUD(runDist, runCollected);
     }
   }
@@ -686,8 +818,9 @@ function checkCollisions() {
   for (let i = activeGoldBags.length - 1; i >= 0; i--) {
     const bag = activeGoldBags[i];
     if (bikeBox.intersectsBox(bag.box)) {
-      runCollected += bag.value;
+      runGoldBagValue += bag.value;
       showGoldBagFlash(bag.value);
+      playSound('goldBag');
       scene.remove(bag.mesh);
       activeGoldBags.splice(i, 1);
       updateHUD(runDist, runCollected);
@@ -700,6 +833,7 @@ function triggerCrash() {
   if (crashed) return;
   crashed     = true;
   gameRunning = false;
+  playSound('crash');
 
   if (bikeRoot) {
     bikeRoot.rotation.z = Math.PI / 3;
@@ -707,7 +841,7 @@ function triggerCrash() {
   }
 
   setTimeout(() => {
-    const events = recordRunEnd(runDist, runCollected);
+    const events = recordRunEnd(runDist, runCollected, runGoldBagValue);
     const s = getState();
     hideHUD();
     clearObstacles();
@@ -715,11 +849,14 @@ function triggerCrash() {
     clearEdgeObstacles();
     clearGoldBags();
     clearDecorations();
+    clearRavines();
+    clearBoulders();
 
+    const totalRunCoins = runCollected + runGoldBagValue;
     if (events.length) {
-      showUnlockQueue(events, () => showGameOver(runDist, s.bestDistance));
+      showUnlockQueue(events, () => showGameOver(runDist, s.bestDistance, totalRunCoins));
     } else {
-      showGameOver(runDist, s.bestDistance);
+      showGameOver(runDist, s.bestDistance, totalRunCoins);
     }
   }, 600);
 }
@@ -741,21 +878,26 @@ function clearCollectibles() {
 
 // ── Game loop ─────────────────────────────────────────────────────────────────
 function resetRun() {
-  crashed        = false;
-  speed          = BASE_SPEED;
-  scrollZ        = 0;
-  runDist        = 0;
-  runCollected   = 0;
+  crashed          = false;
+  pausedByUser     = false;
+  speed            = BASE_SPEED;
+  scrollZ          = 0;
+  runDist          = 0;
+  runCollected     = 0;
+  runGoldBagValue  = 0;
   nextObstacleZ     = 50; // regular spawns resume well past seed obstacles
   nextEdgeObstacleZ = 25;
+  nextRavineZ      = 500  + Math.random() * 300;
+  nextBoulderZ     = 800  + Math.random() * 400;
 
-  jumpVel = 0;
-  jumpOffset = 0;
+  jumpVel       = 0;
+  jumpOffset    = 0;
+  canDoubleJump = false;
+  wheeliePitch  = 0;
 
   if (bikeRoot) {
     bikeRoot.position.set(0, 0, 2);
-    bikeRoot.rotation.z = 0;
-    bikeRoot.rotation.y = 0;
+    bikeRoot.rotation.set(0, 0, 0);
     // Re-seat on ground
     const box = new THREE.Box3().setFromObject(bikeRoot);
     bikeRoot.position.y -= box.min.y;
@@ -770,6 +912,8 @@ function resetRun() {
   clearEdgeObstacles();
   clearGoldBags();
   clearDecorations();
+  clearRavines();
+  clearBoulders();
   nextGoldBagZ = GOLD_BAG_START + 1000 + Math.random() * 600;
   nextHenZ = 600 + Math.random() * 100;
 
@@ -780,6 +924,7 @@ function resetRun() {
 }
 
 function startRun() {
+  initAudio(); // satisfy browser autoplay policy on first real interaction
   const s = getState();
   currentWorldCfg = WORLDS[s.selectedWorld];
   applyWorld(s.selectedWorld);
@@ -797,7 +942,7 @@ let animId;
 function gameLoop(now) {
   animId = requestAnimationFrame(gameLoop);
 
-  if (paused || !gameRunning || !bikeLoaded) {
+  if (paused || pausedByUser || !gameRunning || !bikeLoaded) {
     renderer.render(scene, camera);
     lastTime = now;
     return;
@@ -814,17 +959,40 @@ function gameLoop(now) {
     const targetLean = (keys.right ? -0.25 : keys.left ? 0.25 : 0);
     bikeRoot.rotation.z += (targetLean - bikeRoot.rotation.z) * 8 * dt;
 
-    // Jump trigger
-    if (keys.jump && jumpOffset === 0) {
-      jumpVel = JUMP_FORCE;
-      keys.jump = false; // consume — prevent hold-to-spam
+    // ── Jump / double-jump trigger ──
+    if (keys.jump) {
+      if (jumpOffset === 0) {
+        // First jump — on ground
+        jumpVel = JUMP_FORCE;
+        canDoubleJump = true;
+        keys.jump = false;
+        playSound('jump');
+      } else if (canDoubleJump) {
+        // Double jump — in the air
+        jumpVel = JUMP_FORCE * 0.85;
+        canDoubleJump = false;
+        keys.jump = false;
+        playSound('doubleJump');
+      } else {
+        keys.jump = false; // already used double jump, consume to prevent re-trigger
+      }
     }
+
     // Jump physics
     if (jumpOffset > 0 || jumpVel > 0) {
       jumpVel -= GRAVITY * dt;
       jumpOffset = Math.max(0, jumpOffset + jumpVel * dt);
+      if (jumpOffset === 0) canDoubleJump = false; // landed
       bikeRoot.position.y = bikeGroundY + jumpOffset;
     }
+
+    // ── Wheelie (ArrowDown on the ground) ──
+    if (keys.down && jumpOffset === 0) {
+      wheeliePitch = Math.min(wheeliePitch + 3.5 * dt, 0.42); // tilt up ~24°
+    } else {
+      wheeliePitch = Math.max(wheeliePitch - 4.0 * dt, 0);
+    }
+    bikeRoot.rotation.x = -wheeliePitch;
   }
 
   // ── Scroll world ──
@@ -858,7 +1026,6 @@ function gameLoop(now) {
   activeCollectibles.forEach(c => {
     c.mesh.position.z += travel;
     c.box.translate(new THREE.Vector3(0, 0, travel));
-    // Rotate for visual flair
     c.mesh.rotation.y += dt * 2;
   });
   for (let i = activeCollectibles.length - 1; i >= 0; i--) {
@@ -898,13 +1065,71 @@ function gameLoop(now) {
     }
   }
 
-  // Spawn obstacles; 65% chance to place a collectible just ahead of each one
+  // ── Ravines scroll + death check ──
+  for (let i = activeRavines.length - 1; i >= 0; i--) {
+    const r = activeRavines[i];
+    r.mesh.position.z += travel;
+    if (r.mesh.position.z > camera.position.z + 5) {
+      scene.remove(r.mesh);
+      activeRavines.splice(i, 1);
+      continue;
+    }
+    // Warn player when ravine enters mid-range view
+    if (!r.warned && r.mesh.position.z > -30 && r.mesh.position.z < 0) {
+      r.warned = true;
+      playSound('ravineWarn');
+    }
+    // Death check: bike over the ravine and not high enough
+    if (bikeRoot && !crashed) {
+      const bz = bikeRoot.position.z;
+      const rz = r.mesh.position.z;
+      if (bz > rz - r.halfW && bz < rz + r.halfW && jumpOffset < RAVINE_JUMP_MIN) {
+        triggerCrash();
+        return;
+      }
+    }
+  }
+
+  // ── Boulders scroll + lateral movement ──
+  for (let i = activeBoulders.length - 1; i >= 0; i--) {
+    const b = activeBoulders[i];
+    b.mesh.position.z += travel;
+    b.mesh.position.x += b.vx * dt;
+    // Bounce off canyon walls
+    if (Math.abs(b.mesh.position.x) > LANE_WIDTH) {
+      b.vx *= -1;
+      b.mesh.position.x = Math.sign(b.mesh.position.x) * LANE_WIDTH;
+      playSound('boulder');
+    }
+    // Rolling rotation
+    b.mesh.rotation.z += b.vx * dt * 0.4;
+    b.mesh.rotation.x += dt * 1.8;
+    // Update box
+    b.box.setFromCenterAndSize(
+      b.mesh.position.clone(),
+      new THREE.Vector3(b.radius * 1.6, b.radius * 1.6, b.radius * 1.6)
+    );
+    if (b.mesh.position.z > camera.position.z + 5) {
+      scene.remove(b.mesh);
+      activeBoulders.splice(i, 1);
+    }
+  }
+
+  // ── Spawn obstacles; 25% chance to place a collectible near each one ──
   while (scrollZ >= nextObstacleZ) {
-    const obs = spawnObstacle(-(SEG_COUNT * SEG_LENGTH - 5));
-    if (Math.random() < 0.65) {
+    const spawnZ = -(SEG_COUNT * SEG_LENGTH - 5);
+    const obs = spawnObstacle(spawnZ);
+    if (Math.random() < 0.25) {
       const cx = obs.x + (Math.random() - 0.5) * 1.6;
       const cz = obs.z - (2 + Math.random() * 2);
       spawnCollectible(cz, currentWorldCfg, cx);
+    }
+    // 20% chance: cluster burst — 2–4 additional obstacles close behind
+    if (Math.random() < 0.20) {
+      const clusterCount = 2 + Math.floor(Math.random() * 3);
+      for (let c = 0; c < clusterCount; c++) {
+        spawnObstacle(spawnZ - (c + 1) * 5);
+      }
     }
     nextObstacleZ += OBSTACLE_EVERY - Math.min(6, Math.floor(runDist / 200));
   }
@@ -918,6 +1143,18 @@ function gameLoop(now) {
   if (currentWorldCfg === WORLDS.mountain && scrollZ >= nextHenZ) {
     spawnHen(-(SEG_COUNT * SEG_LENGTH - 5));
     nextHenZ += 600 + Math.random() * 100;
+  }
+
+  // ── Ravine spawn ──
+  while (scrollZ >= nextRavineZ) {
+    spawnRavine(-(SEG_COUNT * SEG_LENGTH - 5));
+    nextRavineZ += 400 + Math.random() * 400;
+  }
+
+  // ── Boulder spawn ──
+  while (scrollZ >= nextBoulderZ) {
+    spawnBoulder(-(SEG_COUNT * SEG_LENGTH - 5));
+    nextBoulderZ += 800 + Math.random() * 400;
   }
 
   // Gold bags scroll + bob
@@ -948,8 +1185,11 @@ function gameLoop(now) {
 // Start screen — any key or tap
 function startScreenListener(e) {
   if (e.type === 'keydown' || e.type === 'pointerdown') {
+    // Ignore Escape on the start screen
+    if (e.type === 'keydown' && e.key === 'Escape') return;
     window.removeEventListener('keydown', startScreenListener);
     window.removeEventListener('pointerdown', startScreenListener);
+    initAudio(); // satisfy autoplay on first interaction
     goToWorldSelect();
   }
 }
@@ -975,6 +1215,55 @@ document.getElementById('btn-back-world').addEventListener('click', goToWorldSel
 document.getElementById('btn-play-again').addEventListener('click', startRun);
 document.getElementById('btn-change-world').addEventListener('click', goToWorldSelect);
 
+// ── Market from start screen ──
+document.getElementById('btn-market-from-start').addEventListener('click', () => {
+  window.removeEventListener('keydown', startScreenListener);
+  window.removeEventListener('pointerdown', startScreenListener);
+  initAudio();
+  openMarket('screen-start');
+});
+
+// ── Market from game-over screen ──
+document.getElementById('btn-market-from-gameover').addEventListener('click', () => {
+  openMarket('screen-gameover');
+});
+
+// ── Market close ──
+document.getElementById('btn-market-close').addEventListener('click', () => {
+  const prev = closeMarket();
+  if (prev === 'screen-start') {
+    showScreen('screen-start');
+    window.addEventListener('keydown', startScreenListener);
+    window.addEventListener('pointerdown', startScreenListener);
+  } else if (prev) {
+    showScreen(prev);
+  }
+});
+
+// ── Pause screen ──
+document.getElementById('btn-resume').addEventListener('click', () => {
+  pausedByUser = false;
+  gameRunning  = true;
+  hideAllScreens();
+  showHUD();
+  lastTime = performance.now();
+});
+
+document.getElementById('btn-quit-to-menu').addEventListener('click', () => {
+  pausedByUser = false;
+  gameRunning  = false;
+  crashed      = false;
+  hideHUD();
+  clearObstacles();
+  clearCollectibles();
+  clearEdgeObstacles();
+  clearGoldBags();
+  clearDecorations();
+  clearRavines();
+  clearBoulders();
+  goToWorldSelect();
+});
+
 // ── Boot ──────────────────────────────────────────────────────────────────────
 
 // Show pending unlocks from previous crash, then start screen
@@ -990,6 +1279,9 @@ function showStartScreen() {
   window.addEventListener('keydown', startScreenListener);
   window.addEventListener('pointerdown', startScreenListener);
 }
+
+// Wire mute button (reads saved muted state from progression store)
+initMuteButton();
 
 // Prime the scene
 applyWorld('mountain');
